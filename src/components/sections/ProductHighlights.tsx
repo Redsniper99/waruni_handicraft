@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Container,
@@ -57,6 +57,8 @@ export default function ProductHighlights() {
     const [activeIndex, setActiveIndex] = useState(0);
     const containerRef = useRef<HTMLDivElement>(null);
     const isScrollingRef = useRef(false);
+    const touchStartY = useRef(0);
+    const touchEndY = useRef(0);
 
     const handleViewDetails = (productName: string) => {
         const whatsappNumber = '94771234567';
@@ -64,28 +66,31 @@ export default function ProductHighlights() {
         window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
     };
 
-    const goToNext = () => {
+    const goToNext = useCallback(() => {
         if (activeIndex < productDetails.length - 1) {
             setActiveIndex(prev => prev + 1);
         }
-    };
+    }, [activeIndex]);
 
-    const goToPrev = () => {
+    const goToPrev = useCallback(() => {
         if (activeIndex > 0) {
             setActiveIndex(prev => prev - 1);
         }
-    };
+    }, [activeIndex]);
 
-    // Handle scroll within section
+    // Handle scroll and touch events
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
-        const handleWheel = (e: WheelEvent) => {
+        const isInStickyRange = () => {
             const rect = container.getBoundingClientRect();
-            const isSticky = rect.top <= 0 && rect.bottom > window.innerHeight;
+            return rect.top <= 0 && rect.bottom > window.innerHeight;
+        };
 
-            if (isSticky && !isScrollingRef.current) {
+        // Desktop wheel handler
+        const handleWheel = (e: WheelEvent) => {
+            if (isInStickyRange() && !isScrollingRef.current) {
                 const atStart = activeIndex === 0 && e.deltaY < 0;
                 const atEnd = activeIndex === productDetails.length - 1 && e.deltaY > 0;
 
@@ -107,12 +112,68 @@ export default function ProductHighlights() {
             }
         };
 
+        // Mobile touch handlers
+        const handleTouchStart = (e: TouchEvent) => {
+            touchStartY.current = e.touches[0].clientY;
+        };
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (!isInStickyRange()) return;
+
+            touchEndY.current = e.touches[0].clientY;
+            const diff = touchStartY.current - touchEndY.current;
+
+            // Only prevent default if we're in the middle of the product list
+            const atStart = activeIndex === 0 && diff < 0;
+            const atEnd = activeIndex === productDetails.length - 1 && diff > 0;
+
+            if (!atStart && !atEnd && Math.abs(diff) > 10) {
+                e.preventDefault();
+            }
+        };
+
+        const handleTouchEnd = () => {
+            if (!isInStickyRange() || isScrollingRef.current) return;
+
+            const diff = touchStartY.current - touchEndY.current;
+            const threshold = 50; // Minimum swipe distance
+
+            const atStart = activeIndex === 0 && diff < 0;
+            const atEnd = activeIndex === productDetails.length - 1 && diff > 0;
+
+            if (Math.abs(diff) > threshold && !atStart && !atEnd) {
+                isScrollingRef.current = true;
+
+                if (diff > 0) {
+                    // Swipe up - go to next
+                    goToNext();
+                } else {
+                    // Swipe down - go to prev
+                    goToPrev();
+                }
+
+                setTimeout(() => {
+                    isScrollingRef.current = false;
+                }, 700);
+            }
+
+            // Reset touch values
+            touchStartY.current = 0;
+            touchEndY.current = 0;
+        };
+
         window.addEventListener('wheel', handleWheel, { passive: false });
+        container.addEventListener('touchstart', handleTouchStart, { passive: true });
+        container.addEventListener('touchmove', handleTouchMove, { passive: false });
+        container.addEventListener('touchend', handleTouchEnd, { passive: true });
 
         return () => {
             window.removeEventListener('wheel', handleWheel);
+            container.removeEventListener('touchstart', handleTouchStart);
+            container.removeEventListener('touchmove', handleTouchMove);
+            container.removeEventListener('touchend', handleTouchEnd);
         };
-    }, [activeIndex]);
+    }, [activeIndex, goToNext, goToPrev]);
 
     const currentProduct = productDetails[activeIndex];
 
@@ -135,6 +196,7 @@ export default function ProductHighlights() {
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
+                    touchAction: 'none', // Prevent default touch scrolling in sticky area
                 }}
             >
                 {/* Section Header */}
@@ -183,7 +245,7 @@ export default function ProductHighlights() {
                             <Box
                                 sx={{
                                     position: 'relative',
-                                    height: { xs: 350, md: 500 },
+                                    height: { xs: 280, md: 500 },
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -197,7 +259,6 @@ export default function ProductHighlights() {
                                         exit={{ opacity: 0, scale: 0.95, y: -30 }}
                                         transition={{
                                             duration: 0.5,
-                                            ease: [0.25, 0.1, 0.25, 1],
                                         }}
                                         sx={{
                                             position: 'relative',
@@ -228,7 +289,6 @@ export default function ProductHighlights() {
                                         exit={{ opacity: 0, x: -50 }}
                                         transition={{
                                             duration: 0.5,
-                                            ease: [0.25, 0.1, 0.25, 1],
                                         }}
                                     >
                                         <Typography
@@ -252,7 +312,7 @@ export default function ProductHighlights() {
                                                 color: 'text.primary',
                                                 fontWeight: 600,
                                                 mb: 2,
-                                                fontSize: { xs: '1.75rem', md: '2.25rem' },
+                                                fontSize: { xs: '1.5rem', md: '2.25rem' },
                                             }}
                                         >
                                             {currentProduct.name}
@@ -264,7 +324,7 @@ export default function ProductHighlights() {
                                                 color: 'text.secondary',
                                                 lineHeight: 1.8,
                                                 mb: 3,
-                                                fontSize: { xs: '0.95rem', md: '1.05rem' },
+                                                fontSize: { xs: '0.9rem', md: '1.05rem' },
                                             }}
                                         >
                                             {currentProduct.description}
