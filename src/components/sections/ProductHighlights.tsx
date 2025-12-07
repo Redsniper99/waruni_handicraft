@@ -9,8 +9,8 @@ import {
     IconButton,
 } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowLeftIcon from '@mui/icons-material/KeyboardArrowLeft';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -55,10 +55,11 @@ const productDetails = [
 
 export default function ProductHighlights() {
     const [activeIndex, setActiveIndex] = useState(0);
+    const [isMobile, setIsMobile] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const isScrollingRef = useRef(false);
+    const touchStartX = useRef(0);
     const touchStartY = useRef(0);
-    const touchEndY = useRef(0);
 
     const handleViewDetails = (productName: string) => {
         const whatsappNumber = '94771234567';
@@ -78,25 +79,33 @@ export default function ProductHighlights() {
         }
     }, [activeIndex]);
 
-    // Handle scroll and touch events
+    // Detect mobile on mount
     useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 900 || 'ontouchstart' in window);
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // Desktop wheel handler
+    useEffect(() => {
+        if (isMobile) return;
+
         const container = containerRef.current;
         if (!container) return;
 
-        const isInStickyRange = () => {
-            const rect = container.getBoundingClientRect();
-            return rect.top <= 0 && rect.bottom > window.innerHeight;
-        };
-
-        // Desktop wheel handler
         const handleWheel = (e: WheelEvent) => {
-            if (isInStickyRange() && !isScrollingRef.current) {
+            const rect = container.getBoundingClientRect();
+            const isSticky = rect.top <= 0 && rect.bottom > window.innerHeight;
+
+            if (isSticky && !isScrollingRef.current) {
                 const atStart = activeIndex === 0 && e.deltaY < 0;
                 const atEnd = activeIndex === productDetails.length - 1 && e.deltaY > 0;
 
                 if (!atStart && !atEnd) {
                     e.preventDefault();
-                    e.stopPropagation();
                     isScrollingRef.current = true;
 
                     if (e.deltaY > 0) {
@@ -112,101 +121,73 @@ export default function ProductHighlights() {
             }
         };
 
-        // Mobile touch handlers
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        return () => window.removeEventListener('wheel', handleWheel);
+    }, [activeIndex, goToNext, goToPrev, isMobile]);
+
+    // Mobile horizontal swipe handler
+    useEffect(() => {
+        if (!isMobile) return;
+
+        const container = containerRef.current;
+        if (!container) return;
+
         const handleTouchStart = (e: TouchEvent) => {
+            touchStartX.current = e.touches[0].clientX;
             touchStartY.current = e.touches[0].clientY;
         };
 
-        const handleTouchMove = (e: TouchEvent) => {
-            if (!isInStickyRange()) return;
+        const handleTouchEnd = (e: TouchEvent) => {
+            if (isScrollingRef.current) return;
 
-            touchEndY.current = e.touches[0].clientY;
-            const diff = touchStartY.current - touchEndY.current;
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
 
-            // Only prevent default if we're in the middle of the product list
-            const atStart = activeIndex === 0 && diff < 0;
-            const atEnd = activeIndex === productDetails.length - 1 && diff > 0;
+            const diffX = touchStartX.current - touchEndX;
+            const diffY = touchStartY.current - touchEndY;
 
-            if (!atStart && !atEnd && Math.abs(diff) > 10) {
-                e.preventDefault();
-            }
-        };
-
-        const handleTouchEnd = () => {
-            if (!isInStickyRange() || isScrollingRef.current) return;
-
-            const diff = touchStartY.current - touchEndY.current;
-            const threshold = 50; // Minimum swipe distance
-
-            const atStart = activeIndex === 0 && diff < 0;
-            const atEnd = activeIndex === productDetails.length - 1 && diff > 0;
-
-            if (Math.abs(diff) > threshold && !atStart && !atEnd) {
+            // Only trigger if horizontal swipe is dominant
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
                 isScrollingRef.current = true;
 
-                if (diff > 0) {
-                    // Swipe up - go to next
+                if (diffX > 0) {
+                    // Swipe left - go to next
                     goToNext();
                 } else {
-                    // Swipe down - go to prev
+                    // Swipe right - go to prev
                     goToPrev();
                 }
 
                 setTimeout(() => {
                     isScrollingRef.current = false;
-                }, 700);
+                }, 500);
             }
-
-            // Reset touch values
-            touchStartY.current = 0;
-            touchEndY.current = 0;
         };
 
-        window.addEventListener('wheel', handleWheel, { passive: false });
         container.addEventListener('touchstart', handleTouchStart, { passive: true });
-        container.addEventListener('touchmove', handleTouchMove, { passive: false });
         container.addEventListener('touchend', handleTouchEnd, { passive: true });
 
         return () => {
-            window.removeEventListener('wheel', handleWheel);
             container.removeEventListener('touchstart', handleTouchStart);
-            container.removeEventListener('touchmove', handleTouchMove);
             container.removeEventListener('touchend', handleTouchEnd);
         };
-    }, [activeIndex, goToNext, goToPrev]);
+    }, [activeIndex, goToNext, goToPrev, isMobile]);
 
     const currentProduct = productDetails[activeIndex];
 
-    return (
-        <Box
-            ref={containerRef}
-            id="collection"
-            sx={{
-                height: `${productDetails.length * 100}vh`,
-                position: 'relative',
-            }}
-        >
-            {/* Sticky Content */}
+    // Mobile layout - simple carousel, no pinning
+    if (isMobile) {
+        return (
             <Box
+                ref={containerRef}
+                id="collection"
                 sx={{
-                    position: 'sticky',
-                    top: 0,
-                    height: '100vh',
+                    py: { xs: 8, md: 10 },
                     backgroundColor: '#FFFFFF',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    touchAction: 'none', // Prevent default touch scrolling in sticky area
                 }}
             >
                 {/* Section Header */}
-                <Box
-                    sx={{
-                        textAlign: 'center',
-                        pt: { xs: 10, md: 10 },
-                        pb: { xs: 1, md: 2 },
-                    }}
-                >
+                <Box sx={{ textAlign: 'center', mb: 4 }}>
                     <Typography
                         variant="overline"
                         sx={{
@@ -230,22 +211,289 @@ export default function ProductHighlights() {
                     </Typography>
                 </Box>
 
-                {/* Main Content */}
+                <Container maxWidth="lg">
+                    {/* Product Image */}
+                    <Box
+                        sx={{
+                            position: 'relative',
+                            height: 300,
+                            mb: 3,
+                        }}
+                    >
+                        <AnimatePresence mode="wait">
+                            <MotionBox
+                                key={currentProduct.id}
+                                initial={{ opacity: 0, x: 50 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -50 }}
+                                transition={{ duration: 0.3 }}
+                                sx={{
+                                    position: 'absolute',
+                                    width: '100%',
+                                    height: '100%',
+                                }}
+                            >
+                                <Image
+                                    src={currentProduct.image}
+                                    alt={currentProduct.name}
+                                    fill
+                                    style={{ objectFit: 'contain' }}
+                                    priority
+                                />
+                            </MotionBox>
+                        </AnimatePresence>
+                    </Box>
+
+                    {/* Product Info */}
+                    <AnimatePresence mode="wait">
+                        <MotionBox
+                            key={currentProduct.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            transition={{ duration: 0.3 }}
+                            sx={{ textAlign: 'center', px: 2 }}
+                        >
+                            <Typography
+                                variant="overline"
+                                sx={{
+                                    color: 'secondary.main',
+                                    letterSpacing: 2,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                }}
+                            >
+                                {currentProduct.tagline}
+                            </Typography>
+
+                            <Typography
+                                variant="h4"
+                                sx={{
+                                    fontFamily: '"Playfair Display", serif',
+                                    color: 'text.primary',
+                                    fontWeight: 600,
+                                    my: 1,
+                                    fontSize: '1.5rem',
+                                }}
+                            >
+                                {currentProduct.name}
+                            </Typography>
+
+                            <Typography
+                                variant="body2"
+                                sx={{
+                                    color: 'text.secondary',
+                                    lineHeight: 1.7,
+                                    mb: 2,
+                                    fontSize: '0.9rem',
+                                }}
+                            >
+                                {currentProduct.description}
+                            </Typography>
+
+                            {/* Features */}
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3, justifyContent: 'center' }}>
+                                {currentProduct.features.map((feature) => (
+                                    <Box
+                                        key={feature}
+                                        sx={{
+                                            px: 1.5,
+                                            py: 0.5,
+                                            backgroundColor: '#F5F0E8',
+                                            borderRadius: 20,
+                                            fontSize: '0.75rem',
+                                            color: 'primary.main',
+                                            fontWeight: 500,
+                                        }}
+                                    >
+                                        {feature}
+                                    </Box>
+                                ))}
+                            </Box>
+
+                            <Button
+                                variant="contained"
+                                onClick={() => handleViewDetails(currentProduct.name)}
+                                sx={{
+                                    background: 'linear-gradient(135deg, #C9A962 0%, #D9C08C 100%)',
+                                    color: '#3A3A3A',
+                                    px: 3,
+                                    py: 1,
+                                    borderRadius: 25,
+                                    fontWeight: 600,
+                                    fontSize: '0.9rem',
+                                    '&:hover': {
+                                        background: 'linear-gradient(135deg, #A68B4B 0%, #C9A962 100%)',
+                                    },
+                                }}
+                            >
+                                Inquire Now
+                            </Button>
+                        </MotionBox>
+                    </AnimatePresence>
+
+                    {/* Navigation Controls */}
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            gap: 2,
+                            mt: 4,
+                        }}
+                    >
+                        <IconButton
+                            onClick={goToPrev}
+                            disabled={activeIndex === 0}
+                            sx={{
+                                width: 40,
+                                height: 40,
+                                backgroundColor: activeIndex === 0 ? '#F5F5F5' : '#F5F0E8',
+                                color: activeIndex === 0 ? '#CCC' : 'primary.main',
+                            }}
+                        >
+                            <KeyboardArrowLeftIcon />
+                        </IconButton>
+
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            {productDetails.map((_, index) => (
+                                <Box
+                                    key={index}
+                                    onClick={() => setActiveIndex(index)}
+                                    sx={{
+                                        width: activeIndex === index ? 24 : 8,
+                                        height: 8,
+                                        borderRadius: 4,
+                                        backgroundColor: 'primary.main',
+                                        opacity: activeIndex === index ? 1 : 0.3,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.3s ease',
+                                    }}
+                                />
+                            ))}
+                        </Box>
+
+                        <IconButton
+                            onClick={goToNext}
+                            disabled={activeIndex === productDetails.length - 1}
+                            sx={{
+                                width: 40,
+                                height: 40,
+                                backgroundColor: activeIndex === productDetails.length - 1 ? '#F5F5F5' : '#F5F0E8',
+                                color: activeIndex === productDetails.length - 1 ? '#CCC' : 'primary.main',
+                            }}
+                        >
+                            <KeyboardArrowRightIcon />
+                        </IconButton>
+                    </Box>
+
+                    {/* Swipe hint */}
+                    <Typography
+                        variant="caption"
+                        sx={{
+                            display: 'block',
+                            textAlign: 'center',
+                            mt: 2,
+                            color: 'text.disabled',
+                        }}
+                    >
+                        Swipe left or right to navigate
+                    </Typography>
+
+                    {/* View All Button */}
+                    <Box sx={{ textAlign: 'center', mt: 4 }}>
+                        <Button
+                            component={Link}
+                            href="/collection"
+                            variant="outlined"
+                            endIcon={<ArrowForwardIcon />}
+                            sx={{
+                                borderColor: 'primary.main',
+                                color: 'primary.main',
+                                px: 3,
+                                py: 1,
+                                borderRadius: 25,
+                                borderWidth: 2,
+                                '&:hover': {
+                                    borderWidth: 2,
+                                    backgroundColor: 'primary.main',
+                                    color: 'white',
+                                },
+                            }}
+                        >
+                            View All Collection
+                        </Button>
+                    </Box>
+                </Container>
+            </Box>
+        );
+    }
+
+    // Desktop layout - pinned scroll
+    return (
+        <Box
+            ref={containerRef}
+            id="collection"
+            sx={{
+                height: `${productDetails.length * 100}vh`,
+                position: 'relative',
+            }}
+        >
+            <Box
+                sx={{
+                    position: 'sticky',
+                    top: 0,
+                    height: '100vh',
+                    backgroundColor: '#FFFFFF',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                }}
+            >
+                <Box
+                    sx={{
+                        textAlign: 'center',
+                        pt: 10,
+                        pb: 2,
+                    }}
+                >
+                    <Typography
+                        variant="overline"
+                        sx={{
+                            color: 'secondary.main',
+                            letterSpacing: 3,
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                        }}
+                    >
+                        Our Favorites
+                    </Typography>
+                    <Typography
+                        variant="h2"
+                        sx={{
+                            color: 'text.primary',
+                            mt: 1,
+                            fontSize: '2.5rem',
+                        }}
+                    >
+                        Featured Pieces
+                    </Typography>
+                </Box>
+
                 <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                     <Container maxWidth="lg">
                         <Box
                             sx={{
                                 display: 'grid',
-                                gridTemplateColumns: { xs: '1fr', md: '1.2fr 1fr' },
-                                gap: { xs: 3, md: 6 },
+                                gridTemplateColumns: '1.2fr 1fr',
+                                gap: 6,
                                 alignItems: 'center',
                             }}
                         >
-                            {/* Left Side - Large Image */}
                             <Box
                                 sx={{
                                     position: 'relative',
-                                    height: { xs: 280, md: 500 },
+                                    height: 500,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -257,9 +505,7 @@ export default function ProductHighlights() {
                                         initial={{ opacity: 0, scale: 0.95, y: 30 }}
                                         animate={{ opacity: 1, scale: 1, y: 0 }}
                                         exit={{ opacity: 0, scale: 0.95, y: -30 }}
-                                        transition={{
-                                            duration: 0.5,
-                                        }}
+                                        transition={{ duration: 0.5 }}
                                         sx={{
                                             position: 'relative',
                                             width: '100%',
@@ -270,26 +516,21 @@ export default function ProductHighlights() {
                                             src={currentProduct.image}
                                             alt={currentProduct.name}
                                             fill
-                                            style={{
-                                                objectFit: 'contain',
-                                            }}
+                                            style={{ objectFit: 'contain' }}
                                             priority
                                         />
                                     </MotionBox>
                                 </AnimatePresence>
                             </Box>
 
-                            {/* Right Side - Description */}
-                            <Box sx={{ position: 'relative' }}>
+                            <Box>
                                 <AnimatePresence mode="wait">
                                     <MotionBox
                                         key={currentProduct.id}
                                         initial={{ opacity: 0, x: 50 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -50 }}
-                                        transition={{
-                                            duration: 0.5,
-                                        }}
+                                        transition={{ duration: 0.5 }}
                                     >
                                         <Typography
                                             variant="overline"
@@ -312,7 +553,7 @@ export default function ProductHighlights() {
                                                 color: 'text.primary',
                                                 fontWeight: 600,
                                                 mb: 2,
-                                                fontSize: { xs: '1.5rem', md: '2.25rem' },
+                                                fontSize: '2.25rem',
                                             }}
                                         >
                                             {currentProduct.name}
@@ -324,13 +565,12 @@ export default function ProductHighlights() {
                                                 color: 'text.secondary',
                                                 lineHeight: 1.8,
                                                 mb: 3,
-                                                fontSize: { xs: '0.9rem', md: '1.05rem' },
+                                                fontSize: '1.05rem',
                                             }}
                                         >
                                             {currentProduct.description}
                                         </Typography>
 
-                                        {/* Features */}
                                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
                                             {currentProduct.features.map((feature) => (
                                                 <Box
@@ -373,14 +613,13 @@ export default function ProductHighlights() {
                             </Box>
                         </Box>
 
-                        {/* Navigation Controls */}
                         <Box
                             sx={{
                                 display: 'flex',
                                 justifyContent: 'center',
                                 alignItems: 'center',
                                 gap: 3,
-                                mt: { xs: 3, md: 4 },
+                                mt: 4,
                             }}
                         >
                             <IconButton
@@ -391,14 +630,13 @@ export default function ProductHighlights() {
                                     height: 44,
                                     backgroundColor: activeIndex === 0 ? '#F5F5F5' : '#F5F0E8',
                                     color: activeIndex === 0 ? '#CCC' : 'primary.main',
-                                    transition: 'all 0.3s ease',
                                     '&:hover': {
                                         backgroundColor: activeIndex === 0 ? '#F5F5F5' : 'primary.main',
                                         color: activeIndex === 0 ? '#CCC' : 'white',
                                     },
                                 }}
                             >
-                                <KeyboardArrowUpIcon />
+                                <KeyboardArrowLeftIcon />
                             </IconButton>
 
                             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -414,9 +652,7 @@ export default function ProductHighlights() {
                                             opacity: activeIndex === index ? 1 : 0.3,
                                             cursor: 'pointer',
                                             transition: 'all 0.3s ease',
-                                            '&:hover': {
-                                                opacity: 0.7,
-                                            },
+                                            '&:hover': { opacity: 0.7 },
                                         }}
                                     />
                                 ))}
@@ -430,14 +666,13 @@ export default function ProductHighlights() {
                                     height: 44,
                                     backgroundColor: activeIndex === productDetails.length - 1 ? '#F5F5F5' : '#F5F0E8',
                                     color: activeIndex === productDetails.length - 1 ? '#CCC' : 'primary.main',
-                                    transition: 'all 0.3s ease',
                                     '&:hover': {
                                         backgroundColor: activeIndex === productDetails.length - 1 ? '#F5F5F5' : 'primary.main',
                                         color: activeIndex === productDetails.length - 1 ? '#CCC' : 'white',
                                     },
                                 }}
                             >
-                                <KeyboardArrowDownIcon />
+                                <KeyboardArrowRightIcon />
                             </IconButton>
                         </Box>
 
@@ -467,7 +702,6 @@ export default function ProductHighlights() {
                                     py: 1.25,
                                     borderRadius: 25,
                                     borderWidth: 2,
-                                    transition: 'all 0.3s ease',
                                     '&:hover': {
                                         borderWidth: 2,
                                         backgroundColor: 'primary.main',

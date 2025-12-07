@@ -11,12 +11,19 @@ export default function SmoothScrollProvider({ children }: SmoothScrollProviderP
     const lenisRef = useRef<Lenis | null>(null);
 
     useEffect(() => {
+        // Disable smooth scroll on mobile/touch devices
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+        if (isTouchDevice) {
+            // Don't initialize Lenis on touch devices
+            return;
+        }
+
         const lenis = new Lenis({
             duration: 1.2,
             easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
             smoothWheel: true,
             wheelMultiplier: 0.8,
-            touchMultiplier: 1.5,
         });
 
         lenisRef.current = lenis;
